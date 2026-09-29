@@ -77,7 +77,8 @@ async function getTask(taskId, env, cors) {
     status: data.status,
     progress: data.progress ?? null,
     output: Array.isArray(data.output) ? data.output : [],
-    failureCode: data.failureCode || null
+    failureCode: data.failureCode || null,
+    failure: data.failure || data.failureReason || null
   }, 200, cors);
 }
 
