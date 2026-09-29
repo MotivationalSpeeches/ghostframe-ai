@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0b0b0d" />
+    <meta
+      name="description"
+      content="Create, preview, schedule, and publish faceless short-form videos."
+    />
+    <title>GhostFrame — Faceless Video Studio</title>
+    <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="Primary navigation">
+        <a class="brand" href="#studio" aria-label="GhostFrame home">
+          <span class="brand-mark" aria-hidden="true"><span></span></span>
+          <span>GHOSTFRAME</span>
+        </a>
+
+        <nav class="side-nav">
+          <button class="nav-item active" data-view="studio" aria-current="page">
+            <span class="nav-icon" aria-hidden="true">✦</span>
+            <span>Studio</span>
+          </button>
+          <button class="nav-item" data-view="queue">
+            <span class="nav-icon" aria-hidden="true">◫</span>
+            <span>Publishing</span>
+            <span class="nav-count" id="queueCount">2</span>
+          </button>
+          <button class="nav-item" data-view="connections">
+            <span class="nav-icon" aria-hidden="true">⌁</span>
+            <span>Connections</span>
+          </button>
+        </nav>
+
+        <div class="sidebar-foot">
+          <div class="usage-block">
+            <div class="usage-row"><span>Monthly renders</span><strong>3 / 20</strong></div>
+            <div class="meter"><span></span></div>
+          </div>
+          <button class="profile-chip" type="button">
+            <span class="avatar">CA</span>
+            <span><strong>Clayton</strong><small>Creator workspace</small></span>
+            <span aria-hidden="true">•••</span>
+          </button>
+        </div>
+      </aside>
+
+      <main>
+        <header class="topbar">
+          <div>
+            <p class="eyebrow" id="viewEyebrow">CREATE</p>
+            <h1 id="viewTitle">Build your next short</h1>
+          </div>
+          <div class="top-actions">
+            <span class="demo-pill" id="modePill"><span></span> Demo mode</span>
+            <button class="icon-button" id="themeButton" type="button" aria-label="Toggle high contrast">◐</button>
+          </div>
+        </header>
+
+        <section class="view active" id="studioView" data-view-panel="studio">
+          <div class="studio-grid">
+            <section class="composer-card" aria-labelledby="briefHeading">
+              <div class="section-heading">
+                <span class="step-number">01</span>
+                <div><h2 id="briefHeading">Creative brief</h2><p>Turn one idea into a ready-to-post vertical video.</p></div>
+              </div>
+
+              <label class="field-label" for="topicInput">What should the video be about?</label>
+              <div class="topic-wrap">
+                <textarea id="topicInput" maxlength="240" rows="4" placeholder="Example: 3 strange facts about the deepest part of the ocean">3 strange facts about the deepest part of the ocean</textarea>
+                <span id="charCount">64 / 240</span>
+              </div>
+
+              <div class="two-col">
+                <label class="select-field">
+                  <span>Content niche</span>
+                  <select id="nicheSelect">
+                    <option>Facts & curiosity</option>
+                    <option>Motivation</option>
+                    <option>Money & business</option>
+                    <option>True stories</option>
+                    <option>Gaming</option>
+                  </select>
+                </label>
+                <label class="select-field">
+                  <span>Tone</span>
+                  <select id="toneSelect">
+                    <option>Dramatic</option>
+                    <option>Fast & punchy</option>
+                    <option>Calm documentary</option>
+                    <option>Mysterious</option>
+                  </select>
+                </label>
+              </div>
+
+              <fieldset>
+                <legend>Length</legend>
+                <div class="segmented" id="lengthOptions">
+                  <button type="button" data-seconds="15">15 sec</button>
+                  <button class="active" type="button" data-seconds="30">30 sec</button>
+                  <button type="button" data-seconds="45">45 sec</button>
+                  <button type="button" data-seconds="60">60 sec</button>
+                </div>
+              </fieldset>
+
+              <fieldset>
+                <legend>Visual style</legend>
+                <div class="template-grid" id="templateGrid">
+                  <button class="template active" type="button" data-template="Kinetic">
+                    <span class="template-art kinetic"><i>DEEP</i><b>OCEAN</b></span><span>Kinetic type</span>
+                  </button>
+                  <button class="template" type="button" data-template="Editorial">
+                    <span class="template-art editorial"><i>01</i><b>THE<br/>ABYSS</b></span><span>Editorial</span>
+                  </button>
+                  <button class="template" type="button" data-template="Minimal">
+                    <span class="template-art minimal"><i></i><b>STAY<br/>CURIOUS</b></span><span>Minimal</span>
+                  </button>
+                </div>
+              </fieldset>
+
+              <div class="two-col settings-row">
+                <label class="select-field">
+                  <span>Voice</span>
+                  <select id="voiceSelect">
+                    <option>Atlas — grounded</option>
+                    <option>Nova — energetic</option>
+                    <option>Vale — cinematic</option>
+                  </select>
+                </label>
+                <label class="select-field">
+                  <span>Captions</span>
+                  <select id="captionSelect">
+                    <option>Bold highlight</option>
+                    <option>Clean subtitles</option>
+                    <option>Word by word</option>
+                  </select>
+                </label>
+              </div>
+
+              <button class="primary-button" id="generateButton" type="button">
+                <span>Generate video draft</span><span aria-hidden="true">↗</span>
+              </button>
+              <p class="helper-copy">Demo mode creates a local preview. Connect a secure generation API to render the final MP4.</p>
+            </section>
+
+            <aside class="preview-panel" aria-labelledby="previewHeading">
+              <div class="preview-topline"><div><span class="step-number">02</span><h2 id="previewHeading">Preview</h2></div><span id="durationBadge">00:30</span></div>
+              <div class="phone-frame">
+                <div class="video-preview" id="videoPreview">
+                  <video id="renderedVideo" playsinline muted loop></video>
+                  <div class="visual-noise"></div>
+                  <div class="depth-rings"><span></span><span></span><span></span></div>
+                  <div class="preview-copy"><small>FACT 01 / 03</small><strong id="previewCaption">THE OCEAN HAS<br/>A HIDDEN WORLD</strong></div>
+                  <div class="timeline"><span id="previewProgress"></span></div>
+                </div>
+              </div>
+              <div class="preview-controls">
+                <button id="playButton" class="play-button" type="button" aria-label="Play preview">▶</button>
+                <div><strong id="previewTime">0:00</strong><span>/ 0:30</span></div>
+                <button id="muteButton" class="plain-icon" type="button" aria-label="Mute preview">⌕</button>
+              </div>
+              <div class="platform-row" aria-label="Selected publishing platforms">
+                <label><input type="checkbox" id="tiktokCheck" checked /><span class="platform-icon tiktok">♪</span><span>TikTok</span></label>
+                <label><input type="checkbox" id="youtubeCheck" checked /><span class="platform-icon youtube">▶</span><span>YouTube Shorts</span></label>
+              </div>
+            </aside>
+          </div>
+        </section>
+
+        <section class="view" id="queueView" data-view-panel="queue">
+          <div class="queue-head">
+            <div><p class="section-kicker">UP NEXT</p><h2>Publishing queue</h2></div>
+            <button class="secondary-button" type="button" data-go-studio>+ New video</button>
+          </div>
+          <div class="queue-list" id="queueList"></div>
+        </section>
+
+        <section class="view" id="connectionsView" data-view-panel="connections">
+          <div class="connection-intro">
+            <p class="section-kicker">CHANNELS</p>
+            <h2>Connect your accounts</h2>
+            <p>Publishing uses official platform authorization. Tokens stay on your secure server—not in the GitHub Pages frontend.</p>
+          </div>
+          <div class="connection-grid">
+            <article class="connection-card">
+              <div class="connection-logo runway">R</div>
+              <div><h3>Runway</h3><p>Gen-4.5 video generation</p></div>
+              <span class="status-badge" id="runwayStatus">Not configured</span>
+              <button class="secondary-button" id="runwayTestButton" type="button">Check Runway</button>
+            </article>
+            <article class="connection-card">
+              <div class="connection-logo tiktok">♪</div>
+              <div><h3>TikTok</h3><p>Direct Post API</p></div>
+              <span class="status-badge">Not connected</span>
+              <button class="secondary-button connect-button" data-platform="TikTok" type="button">Connect TikTok</button>
+            </article>
+            <article class="connection-card">
+              <div class="connection-logo youtube">▶</div>
+              <div><h3>YouTube</h3><p>Data API v3</p></div>
+              <span class="status-badge">Not connected</span>
+              <button class="secondary-button connect-button" data-platform="YouTube" type="button">Connect YouTube</button>
+            </article>
+          </div>
+          <aside class="security-note"><strong>Why a secure service is required</strong><p>GitHub Pages is public and static. OAuth client secrets, refresh tokens, video rendering jobs, and scheduled uploads must run in a private backend.</p></aside>
+        </section>
+      </main>
+    </div>
+
+    <dialog id="connectDialog">
+      <button class="dialog-close" type="button" aria-label="Close dialog">×</button>
+      <span class="dialog-mark">⌁</span>
+      <p class="section-kicker">SECURE CONNECTION</p>
+      <h2 id="dialogTitle">Connect platform</h2>
+      <p id="dialogCopy">Add the backend URL in <code>app.js</code>, then this button will start the official OAuth flow.</p>
+      <div class="code-chip">API_BASE_URL → your secure backend</div>
+      <button class="primary-button dialog-confirm" type="button">Got it</button>
+    </dialog>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script src="config.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>
