@@ -28,7 +28,7 @@ The included `backend/` folder is a Cloudflare Worker that starts portrait Gen-4
 ```bash
 cd backend
 npm install
-npx wrangler secret put RUNWAYML_API_SECRET
+npx wrangler secret put RUNWAY_API_KEY
 npm run deploy
 ```
 
@@ -37,7 +37,7 @@ Before deploying, replace `YOUR_GITHUB_USERNAME` in `backend/wrangler.toml`. The
 Never paste the key into `config.js`, `app.js`, `wrangler.toml`, or any committed file. Runway's official environment-variable name is:
 
 ```text
-RUNWAYML_API_SECRET
+RUNWAY_API_KEY
 ```
 
 ## Turn on TikTok and YouTube posting

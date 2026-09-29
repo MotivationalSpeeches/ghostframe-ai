@@ -142,12 +142,14 @@ fieldset { border: 0; padding: 0; margin: 22px 0 0; }
 .queue-thumb { height: 70px; border-radius: 9px; display: grid; place-items: center; overflow: hidden; background: radial-gradient(circle at 30% 25%, #8c73ff, #352787 55%, #111127); color: var(--acid); font-weight: 900; font-size: .55rem; letter-spacing: .1em; }
 .queue-title h3 { margin: 0 0 6px; font-size: .88rem; }
 .queue-title p { margin: 0; color: var(--muted); font-size: .7rem; }
+.queue-title .queue-failure { margin-top: 6px; max-width: 520px; color: #ff8f9b; line-height: 1.35; }
 .queue-platforms { display: flex; gap: 5px; }
 .queue-status { min-width: 88px; text-align: center; border: 1px solid #36363e; border-radius: 999px; padding: 6px 9px; color: #bdbdc5; font-size: .67rem; }
 .queue-status.scheduled { color: var(--acid); border-color: rgba(215,255,56,.25); background: rgba(215,255,56,.05); }
 .queue-actions { display: flex; align-items: center; gap: 7px; }
 .queue-publish { min-height: 31px; border: 1px solid #3c3c44; border-radius: 8px; background: #222228; padding: 0 10px; color: #eeeeF1; cursor: pointer; font-size: .68rem; font-weight: 750; }
 .queue-publish:hover { border-color: var(--acid); color: var(--acid); }
+.queue-publish:disabled { cursor: wait; opacity: .65; }
 
 .connection-intro, .connection-grid, .security-note { max-width: 900px; margin-left: auto; margin-right: auto; }
 .connection-intro { margin-bottom: 25px; }

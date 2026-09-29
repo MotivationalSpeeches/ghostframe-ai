@@ -13,6 +13,8 @@ const state = {
   ]
 };
 
+const activeRunwayPolls = new Set();
+
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 
@@ -59,18 +61,28 @@ function renderQueue() {
     root.innerHTML = `<div class="security-note"><strong>No videos yet</strong><p>Create your first draft in Studio.</p></div>`;
     return;
   }
-  root.innerHTML = state.queue.map((item) => `
+  root.innerHTML = state.queue.map((item) => {
+    const needsRunwayCheck = Boolean(item.runwayTaskId && !item.outputUrl);
+    const actionAttribute = needsRunwayCheck ? `data-check-id="${item.id}"` : `data-publish-id="${item.id}"`;
+    const actionLabel = needsRunwayCheck ? "Check status" : item.scheduled ? "View" : "Post now";
+    return `
     <article class="queue-item">
       <div class="queue-thumb">${item.duration}s</div>
-      <div class="queue-title"><h3>${escapeHtml(item.title)}</h3><p>${escapeHtml(item.niche)} · Vertical 9:16</p></div>
+      <div class="queue-title">
+        <h3>${escapeHtml(item.title)}</h3>
+        <p>${escapeHtml(item.niche)} · Vertical 9:16</p>
+        ${item.runwayFailure ? `<p class="queue-failure">${escapeHtml(item.runwayFailure)}</p>` : ""}
+      </div>
       <div class="queue-platforms">${platformBadges(item.platforms)}</div>
       <div class="queue-actions">
         <span class="queue-status ${item.scheduled ? "scheduled" : ""}">${escapeHtml(item.status)}</span>
-        <button class="queue-publish" type="button" data-publish-id="${item.id}">${item.scheduled ? "View" : "Post now"}</button>
+        <button class="queue-publish" type="button" ${actionAttribute}>${actionLabel}</button>
       </div>
     </article>
-  `).join("");
+  `;
+  }).join("");
   $$('[data-publish-id]', root).forEach((button) => button.addEventListener("click", () => publishDraft(Number(button.dataset.publishId))));
+  $$('[data-check-id]', root).forEach((button) => button.addEventListener("click", () => checkSavedRunwayTask(Number(button.dataset.checkId), button)));
 }
 
 function escapeHtml(value) {
@@ -194,38 +206,100 @@ async function startRunwayGeneration(topic) {
   return data.taskId;
 }
 
-async function trackRunwayTask(taskId, draftId) {
-  for (let attempt = 0; attempt < 120; attempt += 1) {
-    await wait(5000);
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/videos/${encodeURIComponent(taskId)}/status`);
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Status check failed");
-      const draft = state.queue.find((item) => item.id === draftId);
-      if (!draft) return;
-      const normalized = String(data.status || "RUNNING").toUpperCase();
-      draft.status = normalized === "SUCCEEDED" ? "Runway · ready" : `Runway · ${normalized.toLowerCase()}`;
-      if (normalized === "SUCCEEDED") {
-        draft.outputUrl = data.output?.[0] || "";
-        persistQueue();
-        renderQueue();
-        if (draft.outputUrl) loadGeneratedVideo(draft.outputUrl);
-        showToast("Your Runway video clip is ready.");
-        return;
-      }
-      if (["FAILED", "CANCELLED"].includes(normalized)) {
-        draft.status = "Runway · failed";
-        persistQueue();
-        renderQueue();
-        showToast("Runway could not complete this clip.");
-        return;
-      }
-      persistQueue();
-      if (state.view === "queue") renderQueue();
-    } catch {
-      if (attempt > 4) return;
+async function syncRunwayTask(taskId, draftId, notify = false) {
+  const response = await fetch(`${API_BASE_URL}/api/videos/${encodeURIComponent(taskId)}/status`, { cache: "no-store" });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || "Runway status check failed");
+
+  const draft = state.queue.find((item) => item.id === draftId);
+  if (!draft) return true;
+
+  const normalized = String(data.status || "RUNNING").toUpperCase();
+  const canceled = normalized === "CANCELED" || normalized === "CANCELLED";
+  const terminal = normalized === "SUCCEEDED" || normalized === "FAILED" || canceled;
+  const progress = data.progress == null ? Number.NaN : Number(data.progress);
+  const progressLabel = Number.isFinite(progress)
+    ? ` · ${Math.max(0, Math.min(100, Math.round(progress * (progress <= 1 ? 100 : 1))))}%`
+    : "";
+
+  draft.runwayFailure = "";
+  draft.status = normalized === "SUCCEEDED"
+    ? "Runway · ready"
+    : normalized === "FAILED" || canceled
+      ? `Runway · ${canceled ? "canceled" : "failed"}`
+      : `Runway · ${normalized.toLowerCase()}${progressLabel}`;
+
+  if (normalized === "SUCCEEDED") {
+    draft.outputUrl = data.output?.[0] || "";
+    if (!draft.outputUrl) {
+      draft.status = "Runway · completed without output";
+      draft.runwayFailure = "Runway completed the task but did not return a video URL.";
     }
+  } else if (normalized === "FAILED" || canceled) {
+    draft.runwayFailure = data.failure || data.failureCode || (canceled ? "The Runway task was canceled." : "Runway did not provide a failure reason.");
   }
+
+  persistQueue();
+  renderQueue();
+
+  if (normalized === "SUCCEEDED" && draft.outputUrl) {
+    loadGeneratedVideo(draft.outputUrl);
+    if (notify) showToast("Your Runway video clip is ready.");
+  } else if ((normalized === "FAILED" || canceled) && notify) {
+    showToast(draft.runwayFailure);
+  } else if (notify) {
+    showToast(`Runway reports: ${normalized.toLowerCase()}${progressLabel}`);
+  }
+  return terminal;
+}
+
+async function trackRunwayTask(taskId, draftId) {
+  if (activeRunwayPolls.has(taskId)) return;
+  activeRunwayPolls.add(taskId);
+  try {
+    for (let attempt = 0; attempt < 120; attempt += 1) {
+      try {
+        const finished = await syncRunwayTask(taskId, draftId, attempt === 0);
+        if (finished) return;
+      } catch (error) {
+        if (attempt === 0) showToast(error.message || "Could not check the Runway task.");
+      }
+      await wait(5000);
+    }
+
+    const draft = state.queue.find((item) => item.id === draftId);
+    if (draft && !draft.outputUrl) {
+      draft.status = "Runway · still processing";
+      draft.runwayFailure = "Automatic checks paused after 10 minutes. Use Check status to ask Runway again.";
+      persistQueue();
+      renderQueue();
+    }
+  } finally {
+    activeRunwayPolls.delete(taskId);
+  }
+}
+
+async function checkSavedRunwayTask(draftId, button) {
+  const draft = state.queue.find((item) => item.id === draftId);
+  if (!draft?.runwayTaskId) return;
+  const original = button.textContent;
+  button.disabled = true;
+  button.textContent = "Checking…";
+  try {
+    const finished = await syncRunwayTask(draft.runwayTaskId, draft.id, true);
+    if (!finished) void trackRunwayTask(draft.runwayTaskId, draft.id);
+  } catch (error) {
+    showToast(error.message || "Could not check the Runway task.");
+  } finally {
+    button.disabled = false;
+    button.textContent = original;
+  }
+}
+
+function resumeRunwayTasks() {
+  state.queue
+    .filter((item) => item.runwayTaskId && !item.outputUrl && !String(item.status).includes("failed") && !String(item.status).includes("canceled"))
+    .forEach((item) => void trackRunwayTask(item.runwayTaskId, item.id));
 }
 
 function loadGeneratedVideo(url) {
@@ -363,6 +437,7 @@ registerWebMcpTools();
 if (API_BASE_URL) {
   $("#runwayStatus").textContent = "Configured";
   $("#modePill").lastChild.textContent = " Runway configured";
+  resumeRunwayTasks();
 }
 const initialView = location.hash.replace("#", "");
 if (viewMeta[initialView]) setView(initialView);
