@@ -1,0 +1,6 @@
+name = "ghostframe-api"
+main = "src/index.js"
+compatibility_date = "2026-09-28"
+
+[vars]
+ALLOWED_ORIGIN = "https://motivationalspeeches.github.io"
