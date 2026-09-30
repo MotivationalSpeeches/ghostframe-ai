@@ -195,14 +195,14 @@
             <article class="connection-card">
               <div class="connection-logo tiktok">♪</div>
               <div><h3>TikTok</h3><p>Direct Post API</p></div>
-              <span class="status-badge">Not connected</span>
-              <button class="secondary-button connect-button" data-platform="TikTok" type="button">Connect TikTok</button>
+              <span class="status-badge" id="tiktokStatus">Not connected</span>
+              <button class="secondary-button connect-button" id="tiktokConnectButton" data-platform="TikTok" type="button">Connect TikTok</button>
             </article>
             <article class="connection-card">
               <div class="connection-logo youtube">▶</div>
               <div><h3>YouTube</h3><p>Data API v3</p></div>
-              <span class="status-badge">Not connected</span>
-              <button class="secondary-button connect-button" data-platform="YouTube" type="button">Connect YouTube</button>
+              <span class="status-badge" id="youtubeStatus">Not connected</span>
+              <button class="secondary-button connect-button" id="youtubeConnectButton" data-platform="YouTube" type="button">Connect YouTube</button>
             </article>
           </div>
           <aside class="security-note"><strong>Why a secure service is required</strong><p>GitHub Pages is public and static. OAuth client secrets, refresh tokens, video rendering jobs, and scheduled uploads must run in a private backend.</p></aside>
@@ -218,6 +218,18 @@
       <p id="dialogCopy">Add the backend URL in <code>app.js</code>, then this button will start the official OAuth flow.</p>
       <div class="code-chip">API_BASE_URL → your secure backend</div>
       <button class="primary-button dialog-confirm" type="button">Got it</button>
+    </dialog>
+
+    <dialog id="queuePreviewDialog" class="video-dialog">
+      <button class="dialog-close video-dialog-close" type="button" aria-label="Close video preview">×</button>
+      <p class="section-kicker">REVIEW BEFORE POSTING</p>
+      <h2 id="queuePreviewTitle">Video preview</h2>
+      <video id="queuePreviewVideo" controls playsinline preload="metadata"></video>
+      <p class="video-dialog-note">Watch the finished video before sending it to TikTok or YouTube.</p>
+      <div class="video-dialog-actions">
+        <a class="secondary-button" id="queueDownloadButton" href="#" target="_blank" rel="noopener">Open video</a>
+        <button class="primary-button" id="queuePreviewPostButton" type="button">Continue to posting</button>
+      </div>
     </dialog>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>

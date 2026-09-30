@@ -161,6 +161,8 @@ fieldset { border: 0; padding: 0; margin: 22px 0 0; }
 .connection-card h3 { margin: 0 0 4px; font-size: .95rem; }
 .connection-card p { margin: 0; color: var(--muted); font-size: .71rem; }
 .status-badge { color: #888892; font-size: .66rem; }
+.status-badge.connected { color: var(--acid); }
+.status-badge.needs-setup { color: #ffbe73; }
 .connection-card .secondary-button { grid-column: 1 / -1; margin-top: 6px; }
 .security-note { margin-top: 18px; border-left: 3px solid var(--violet); padding: 17px 19px; background: rgba(133,104,255,.07); }
 .security-note strong { font-size: .8rem; }
@@ -175,6 +177,11 @@ dialog > p:not(.section-kicker) { color: var(--muted); line-height: 1.55; font-s
 code, .code-chip { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .code-chip { border: 1px solid #313138; border-radius: 9px; background: #0a0a0c; padding: 12px; color: var(--acid); font-size: .72rem; }
 .dialog-confirm { margin-top: 18px; }
+.video-dialog { max-width: 520px; }
+.video-dialog video { display: block; width: min(100%, 320px); max-height: 58vh; margin: 18px auto 0; border: 1px solid #34343b; border-radius: 14px; background: #050507; }
+.video-dialog-note { text-align: center; }
+.video-dialog-actions { display: flex; justify-content: center; gap: 10px; margin-top: 18px; }
+.video-dialog-actions .secondary-button { display: inline-flex; align-items: center; border-radius: 9px; text-decoration: none; }
 .toast { position: fixed; right: 22px; bottom: 22px; max-width: 360px; transform: translateY(30px); opacity: 0; pointer-events: none; border: 1px solid #3a3a42; border-radius: 11px; padding: 13px 15px; background: #1b1b20; box-shadow: 0 15px 50px rgba(0,0,0,.45); color: #efeff2; font-size: .78rem; transition: .25s ease; z-index: 20; }
 .toast.show { transform: translateY(0); opacity: 1; }
 .high-contrast { --panel: #18181d; --line-soft: #393941; --muted: #b3b3bb; }

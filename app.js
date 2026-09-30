@@ -1,4 +1,5 @@
 const API_BASE_URL = String(window.GHOSTFRAME_CONFIG?.apiBaseUrl || "").replace(/\/$/, "");
+const WORKSPACE_ID = getOrCreateWorkspaceId();
 
 const state = {
   view: "studio",
@@ -44,6 +45,7 @@ function setView(view) {
   $("#viewTitle").textContent = viewMeta[view][1];
   location.hash = view;
   if (view === "queue") renderQueue();
+  if (view === "connections") void checkOAuthConnections();
 }
 
 function persistQueue() {
@@ -63,8 +65,12 @@ function renderQueue() {
   }
   root.innerHTML = state.queue.map((item) => {
     const needsRunwayCheck = Boolean(item.runwayTaskId && !item.outputUrl);
-    const actionAttribute = needsRunwayCheck ? `data-check-id="${item.id}"` : `data-publish-id="${item.id}"`;
-    const actionLabel = needsRunwayCheck ? "Check status" : item.scheduled ? "View" : "Post now";
+    const actionAttribute = item.outputUrl
+      ? `data-preview-id="${item.id}"`
+      : needsRunwayCheck
+        ? `data-check-id="${item.id}"`
+        : `data-publish-id="${item.id}"`;
+    const actionLabel = item.outputUrl ? "Preview" : needsRunwayCheck ? "Check status" : item.scheduled ? "View" : "Post now";
     return `
     <article class="queue-item">
       <div class="queue-thumb">${item.duration}s</div>
@@ -83,6 +89,17 @@ function renderQueue() {
   }).join("");
   $$('[data-publish-id]', root).forEach((button) => button.addEventListener("click", () => publishDraft(Number(button.dataset.publishId))));
   $$('[data-check-id]', root).forEach((button) => button.addEventListener("click", () => checkSavedRunwayTask(Number(button.dataset.checkId), button)));
+  $$('[data-preview-id]', root).forEach((button) => button.addEventListener("click", () => openQueuePreview(Number(button.dataset.previewId))));
+}
+
+function getOrCreateWorkspaceId() {
+  const key = "ghostframe-workspace-id";
+  let value = localStorage.getItem(key) || "";
+  if (!/^[A-Za-z0-9_-]{20,128}$/.test(value)) {
+    value = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
+    localStorage.setItem(key, value);
+  }
+  return value;
 }
 
 function escapeHtml(value) {
@@ -309,23 +326,112 @@ function loadGeneratedVideo(url) {
   video.play().catch(() => {});
 }
 
-function openConnectDialog(platform) {
-  const dialog = $("#connectDialog");
-  $("#dialogTitle").textContent = `Connect ${platform}`;
-  $("#dialogCopy").innerHTML = API_BASE_URL
-    ? `Continue to ${platform} to authorize publishing for this workspace.`
-    : `Add the secure backend URL in <code>app.js</code>. This button will then start the official ${platform} OAuth flow.`;
-  if (API_BASE_URL) {
-    window.location.href = `${API_BASE_URL}/auth/${platform.toLowerCase()}`;
+function openQueuePreview(id) {
+  const item = state.queue.find((video) => video.id === id);
+  if (!item?.outputUrl) {
+    showToast("This video is not ready to preview yet.");
     return;
   }
+  const dialog = $("#queuePreviewDialog");
+  const video = $("#queuePreviewVideo");
+  $("#queuePreviewTitle").textContent = item.title;
+  $("#queueDownloadButton").href = item.outputUrl;
+  $("#queuePreviewPostButton").dataset.draftId = String(item.id);
+  video.src = item.outputUrl;
   dialog.showModal();
+  video.play().catch(() => {});
+}
+
+function closeQueuePreview() {
+  const video = $("#queuePreviewVideo");
+  video.pause();
+  video.removeAttribute("src");
+  video.load();
+  $("#queuePreviewDialog").close();
+}
+
+async function openConnectDialog(platform, button) {
+  const dialog = $("#connectDialog");
+  $("#dialogTitle").textContent = `Connect ${platform}`;
+  if (!API_BASE_URL) {
+    $("#dialogCopy").innerHTML = `Deploy the secure backend before connecting ${platform}.`;
+    dialog.showModal();
+    return;
+  }
+
+  const original = button.textContent;
+  button.disabled = true;
+  button.textContent = "Opening authorization…";
+  try {
+    const provider = platform.toLowerCase();
+    const response = await fetch(`${API_BASE_URL}/api/oauth/${provider}/start`, {
+      method: "POST",
+      headers: { "X-Workspace-Id": WORKSPACE_ID }
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.authorizationUrl) throw new Error(data.error || `${platform} authorization could not start`);
+    window.location.assign(data.authorizationUrl);
+  } catch (error) {
+    $("#dialogCopy").textContent = error.message || `${platform} OAuth needs attention.`;
+    dialog.showModal();
+  } finally {
+    button.disabled = false;
+    button.textContent = original;
+  }
+}
+
+function setConnectionStatus(provider, details) {
+  const status = $(`#${provider}Status`);
+  const button = $(`#${provider}ConnectButton`);
+  const label = provider === "tiktok" ? "TikTok" : "YouTube";
+  status.classList.remove("connected", "needs-setup");
+  if (details.connected) {
+    status.textContent = "Connected";
+    status.classList.add("connected");
+    button.textContent = `Reconnect ${label}`;
+  } else if (!details.configured) {
+    status.textContent = "Needs setup";
+    status.classList.add("needs-setup");
+    button.textContent = `Set up ${label}`;
+  } else {
+    status.textContent = "Not connected";
+    button.textContent = `Connect ${label}`;
+  }
+}
+
+async function checkOAuthConnections() {
+  if (!API_BASE_URL) return;
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/oauth/status`, {
+      headers: { "X-Workspace-Id": WORKSPACE_ID },
+      cache: "no-store"
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || "Connection status is unavailable");
+    setConnectionStatus("tiktok", data.providers?.tiktok || { configured: false, connected: false });
+    setConnectionStatus("youtube", data.providers?.youtube || { configured: false, connected: false });
+  } catch {
+    $("#tiktokStatus").textContent = "Needs attention";
+    $("#youtubeStatus").textContent = "Needs attention";
+  }
+}
+
+function handleOAuthReturn() {
+  const params = new URLSearchParams(location.search);
+  const provider = params.get("oauth");
+  const status = params.get("status");
+  if (!provider || !status) return;
+  const label = provider === "tiktok" ? "TikTok" : "YouTube";
+  if (status === "connected") showToast(`${label} connected successfully.`);
+  else showToast(params.get("message") || `${label} could not be connected.`);
+  history.replaceState(null, "", `${location.pathname}#connections`);
+  setView("connections");
 }
 
 async function checkRunwayConnection() {
   if (!API_BASE_URL) {
     $("#dialogTitle").textContent = "Configure Runway";
-    $("#dialogCopy").innerHTML = "Deploy the included <code>backend</code> folder, save your Runway key as <code>RUNWAYML_API_SECRET</code>, then add the backend URL to <code>config.js</code>.";
+    $("#dialogCopy").innerHTML = "Deploy the included <code>backend</code> folder, save your Runway key as <code>RUNWAY_API_KEY</code>, then add the backend URL to <code>config.js</code>.";
     $("#connectDialog").showModal();
     return;
   }
@@ -365,8 +471,7 @@ async function publishDraft(id) {
   }
   const response = await fetch(`${API_BASE_URL}/api/videos/publish`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    credentials: "include",
+    headers: { "Content-Type": "application/json", "X-Workspace-Id": WORKSPACE_ID },
     body: JSON.stringify({ id: item.id, videoUrl: item.outputUrl, platforms: item.platforms })
   });
   const data = await response.json().catch(() => ({}));
@@ -427,9 +532,16 @@ $("#muteButton").addEventListener("click", (event) => {
 });
 $("#themeButton").addEventListener("click", () => document.body.classList.toggle("high-contrast"));
 $("#runwayTestButton").addEventListener("click", checkRunwayConnection);
-$$(".connect-button").forEach((button) => button.addEventListener("click", () => openConnectDialog(button.dataset.platform)));
-$(".dialog-close").addEventListener("click", () => $("#connectDialog").close());
+$$(".connect-button").forEach((button) => button.addEventListener("click", () => openConnectDialog(button.dataset.platform, button)));
+$("#connectDialog .dialog-close").addEventListener("click", () => $("#connectDialog").close());
 $(".dialog-confirm").addEventListener("click", () => $("#connectDialog").close());
+$(".video-dialog-close").addEventListener("click", closeQueuePreview);
+$("#queuePreviewVideo").addEventListener("error", () => showToast("This preview link expired. Check the Runway status or generate a new clip."));
+$("#queuePreviewPostButton").addEventListener("click", () => {
+  const id = Number($("#queuePreviewPostButton").dataset.draftId);
+  closeQueuePreview();
+  void publishDraft(id);
+});
 
 persistQueue();
 renderQueue();
@@ -438,6 +550,8 @@ if (API_BASE_URL) {
   $("#runwayStatus").textContent = "Configured";
   $("#modePill").lastChild.textContent = " Runway configured";
   resumeRunwayTasks();
+  void checkOAuthConnections();
 }
+handleOAuthReturn();
 const initialView = location.hash.replace("#", "");
 if (viewMeta[initialView]) setView(initialView);

@@ -8,6 +8,7 @@ A polished, GitHub Pages-ready dashboard for creating and scheduling AI faceless
 - Animated vertical-video preview
 - Local demo generation plus a secure Runway Gen-4.5 integration
 - Persistent publishing queue with Runway task tracking
+- Playable video review on the Publishing page before posting
 - TikTok and YouTube connection screens
 - GitHub Pages deployment workflow
 - WebMCP tool for creating drafts from supported AI agents
@@ -42,15 +43,17 @@ RUNWAY_API_KEY
 
 ## Turn on TikTok and YouTube posting
 
-Runway generation works independently. Direct social posting still requires a private OAuth integration with these routes:
+The Worker includes secure OAuth authorization routes for both platforms. Authorization tokens are encrypted and stored in a per-workspace Cloudflare Durable Object.
 
 ```text
-GET  /auth/tiktok
-GET  /auth/youtube
-POST /api/videos/publish
+POST /api/oauth/tiktok/start
+GET  /auth/tiktok/callback
+POST /api/oauth/youtube/start
+GET  /auth/youtube/callback
+GET  /api/oauth/status
 ```
 
-Those integrations require separate credentials stored only on the backend:
+Add these values as encrypted Cloudflare Worker secrets, never as GitHub files:
 
 ```text
 TIKTOK_CLIENT_KEY
@@ -60,7 +63,14 @@ YOUTUBE_CLIENT_SECRET
 TOKEN_ENCRYPTION_KEY
 ```
 
-For production, use TikTok's Content Posting API and YouTube Data API `videos.insert`. Both platforms require OAuth authorization, and public posting can require app review or API-project verification. The included backend returns a clear setup message until these credentials and routes are added.
+Register these exact callback URLs in the developer consoles:
+
+```text
+https://ghostframe-ai.nonamedemonade12.workers.dev/auth/tiktok/callback
+https://ghostframe-ai.nonamedemonade12.workers.dev/auth/youtube/callback
+```
+
+TikTok needs Login Kit and Content Posting API with the `video.publish` scope. YouTube needs the YouTube Data API and the `youtube.upload` OAuth scope. TikTok direct posting requires an audit for public visibility, and Google may require OAuth-app verification before external users can authorize uploads.
 
 ## Local preview
 
