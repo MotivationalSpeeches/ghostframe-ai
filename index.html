@@ -17,8 +17,12 @@
       <aside class="sidebar" aria-label="Primary navigation">
         <a class="brand" href="#studio" aria-label="GhostFrame home">
           <span class="brand-mark" aria-hidden="true"><span></span></span>
-          <span>GHOSTFRAME</span>
+          <span>GHOSTFRAME <small>AI STUDIO</small></span>
         </a>
+
+        <button class="sidebar-create" type="button" data-go-studio>
+          <span aria-hidden="true">＋</span><span>New video</span>
+        </button>
 
         <nav class="side-nav">
           <button class="nav-item active" data-view="studio" aria-current="page">
@@ -57,22 +61,43 @@
           </div>
           <div class="top-actions">
             <span class="demo-pill" id="modePill"><span></span> Demo mode</span>
+            <button class="top-new-button" id="newProjectButton" type="button"><span aria-hidden="true">＋</span> New project</button>
             <button class="icon-button" id="themeButton" type="button" aria-label="Toggle high contrast">◐</button>
           </div>
         </header>
 
         <section class="view active" id="studioView" data-view-panel="studio">
+          <section class="studio-overview" aria-label="Creator workspace overview">
+            <div>
+              <p class="section-kicker">AI VIDEO WORKSPACE</p>
+              <h2>From idea to scroll-stopping short.</h2>
+              <p>CompactifAI writes the story. JSON2Video builds the voice, captions, scenes, and finished vertical video for your review.</p>
+            </div>
+            <div class="workflow-rail" aria-label="Creation workflow">
+              <span class="active"><i>1</i>Brief</span>
+              <span><i>2</i>Script</span>
+              <span><i>3</i>Render</span>
+              <span><i>4</i>Review</span>
+            </div>
+          </section>
           <div class="studio-grid">
             <section class="composer-card" aria-labelledby="briefHeading">
               <div class="section-heading">
                 <span class="step-number">01</span>
-                <div><h2 id="briefHeading">Creative brief</h2><p>Turn one idea into a ready-to-post vertical video.</p></div>
+                <div><h2 id="briefHeading">Creative brief</h2><p>Give the AI one focused idea and choose the look.</p></div>
+                <span class="autosave-pill">Saved locally</span>
               </div>
 
               <label class="field-label" for="topicInput">What should the video be about?</label>
               <div class="topic-wrap">
                 <textarea id="topicInput" maxlength="240" rows="4" placeholder="Example: 3 strange facts about the deepest part of the ocean">3 strange facts about the deepest part of the ocean</textarea>
                 <span id="charCount">64 / 240</span>
+              </div>
+              <div class="prompt-starters" aria-label="Prompt starters">
+                <span>Quick ideas</span>
+                <button type="button" data-prompt="3 habits that quietly separate high performers from everyone else">High-performance habits</button>
+                <button type="button" data-prompt="The true story behind the most expensive mistake in business history">Business story</button>
+                <button type="button" data-prompt="5 unsettling facts about what happens in the deepest ocean trenches">Mystery facts</button>
               </div>
 
               <div class="two-col">
@@ -141,14 +166,25 @@
                 </label>
               </div>
 
+              <div class="output-specs" aria-label="Output settings summary">
+                <span><b>9:16</b> Vertical</span>
+                <span><b>1080p</b> Output</span>
+                <span><b id="creditEstimate">~30 credits</b> Estimate</span>
+              </div>
+
               <button class="primary-button" id="generateButton" type="button">
-                <span>Generate video draft</span><span aria-hidden="true">↗</span>
+                <span class="button-spark" aria-hidden="true">✦</span><span>Generate complete video</span><span aria-hidden="true">→</span>
               </button>
-              <p class="helper-copy">Demo mode creates a local preview. Connect a secure generation API to render the final MP4.</p>
+              <p class="helper-copy">Every finished render goes to Publishing for review before posting.</p>
             </section>
 
             <aside class="preview-panel" aria-labelledby="previewHeading">
-              <div class="preview-topline"><div><span class="step-number">02</span><h2 id="previewHeading">Preview</h2></div><span id="durationBadge">00:30</span></div>
+              <div class="preview-topline"><div><span class="step-number">02</span><h2 id="previewHeading">Live preview</h2></div><span id="durationBadge">00:30</span></div>
+              <div class="render-status-strip">
+                <span class="status-orb"></span>
+                <div><strong id="renderStageTitle">Ready to create</strong><small id="renderStageCopy">Your selected style appears here</small></div>
+                <span class="quality-chip">9:16</span>
+              </div>
               <div class="phone-frame">
                 <div class="video-preview" id="videoPreview">
                   <video id="renderedVideo" playsinline muted loop></video>
@@ -173,8 +209,23 @@
 
         <section class="view" id="queueView" data-view-panel="queue">
           <div class="queue-head">
-            <div><p class="section-kicker">UP NEXT</p><h2>Publishing queue</h2></div>
+            <div><p class="section-kicker">CONTENT PIPELINE</p><h2>Publishing command center</h2><p>Review every render and control what goes live.</p></div>
             <button class="secondary-button" type="button" data-go-studio>+ New video</button>
+          </div>
+          <div class="queue-stats" aria-label="Publishing summary">
+            <article><span>All videos</span><strong id="allVideoCount">0</strong><small>Your content library</small></article>
+            <article><span>Rendering</span><strong id="renderingVideoCount">0</strong><small>Jobs in progress</small></article>
+            <article><span>Ready</span><strong id="readyVideoCount">0</strong><small>Waiting for review</small></article>
+            <article><span>Scheduled</span><strong id="scheduledVideoCount">0</strong><small>Approved to publish</small></article>
+          </div>
+          <div class="queue-toolbar">
+            <div class="queue-filters" aria-label="Filter videos">
+              <button class="active" type="button" data-queue-filter="all">All</button>
+              <button type="button" data-queue-filter="rendering">Rendering</button>
+              <button type="button" data-queue-filter="ready">Ready</button>
+              <button type="button" data-queue-filter="scheduled">Scheduled</button>
+            </div>
+            <span id="queueFilterSummary">Showing all videos</span>
           </div>
           <div class="queue-list" id="queueList"></div>
         </section>
@@ -182,15 +233,26 @@
         <section class="view" id="connectionsView" data-view-panel="connections">
           <div class="connection-intro">
             <p class="section-kicker">CHANNELS</p>
-            <h2>Connect your accounts</h2>
-            <p>Publishing uses official platform authorization. Tokens stay on your secure server—not in the GitHub Pages frontend.</p>
+            <h2>Your creator stack</h2>
+            <p>Generation and distribution stay in one secure workspace. Provider keys and platform tokens remain inside your Cloudflare Worker.</p>
+          </div>
+          <div class="connection-health">
+            <span class="health-icon">✦</span>
+            <div><strong>GhostFrame backend</strong><p id="backendHealthCopy">Checking your AI production stack…</p></div>
+            <span class="live-chip" id="backendLiveChip"><i></i> Checking</span>
           </div>
           <div class="connection-grid">
             <article class="connection-card">
-              <div class="connection-logo runway">R</div>
-              <div><h3>Runway</h3><p>Gen-4.5 video generation</p></div>
-              <span class="status-badge" id="runwayStatus">Not configured</span>
-              <button class="secondary-button" id="runwayTestButton" type="button">Check Runway</button>
+              <div class="connection-logo compactifai">C</div>
+              <div><h3>CompactifAI</h3><p>Scripts, hooks, and scene writing</p></div>
+              <span class="status-badge" id="compactifaiStatus">Checking</span>
+              <button class="secondary-button" id="aiStackTestButton" type="button">Check AI stack</button>
+            </article>
+            <article class="connection-card">
+              <div class="connection-logo json2video">J2V</div>
+              <div><h3>JSON2Video</h3><p>Vertical video, voice, and captions</p></div>
+              <span class="status-badge" id="json2videoStatus">Checking</span>
+              <button class="secondary-button" type="button" data-go-studio>Create a video</button>
             </article>
             <article class="connection-card">
               <div class="connection-logo tiktok">♪</div>
@@ -205,7 +267,7 @@
               <button class="secondary-button connect-button" id="youtubeConnectButton" data-platform="YouTube" type="button">Connect YouTube</button>
             </article>
           </div>
-          <aside class="security-note"><strong>Why a secure service is required</strong><p>GitHub Pages is public and static. OAuth client secrets, refresh tokens, video rendering jobs, and scheduled uploads must run in a private backend.</p></aside>
+          <aside class="security-note"><strong>Protected by design</strong><p>GitHub Pages serves only the interface. API keys, OAuth secrets, refresh tokens, rendering jobs, and uploads stay inside the private Cloudflare Worker.</p></aside>
         </section>
       </main>
     </div>

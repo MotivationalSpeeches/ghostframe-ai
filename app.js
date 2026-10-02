@@ -8,13 +8,18 @@ const state = {
   playing: false,
   elapsed: 0,
   timer: null,
+  queueFilter: "all",
   queue: JSON.parse(localStorage.getItem("ghostframe-queue") || "null") || [
     { id: 1, title: "Why your brain loves unfinished stories", niche: "Facts & curiosity", duration: 30, status: "Scheduled · Tue 7:30 PM", scheduled: true, platforms: ["TikTok", "YouTube"] },
     { id: 2, title: "The 2-minute rule that beats procrastination", niche: "Motivation", duration: 45, status: "Draft", scheduled: false, platforms: ["TikTok"] }
   ]
 };
 
-const activeRunwayPolls = new Set();
+state.queue = state.queue.map((item) => item.runwayTaskId && !item.outputUrl
+  ? { ...item, runwayTaskId: null, status: "Legacy render", renderFailure: "This render used the retired Runway connection. Create a new JSON2Video render." }
+  : item);
+
+const activeRenderPolls = new Set();
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
@@ -59,25 +64,34 @@ function platformBadges(platforms) {
 
 function renderQueue() {
   const root = $("#queueList");
+  updateQueueStats();
   if (!state.queue.length) {
     root.innerHTML = `<div class="security-note"><strong>No videos yet</strong><p>Create your first draft in Studio.</p></div>`;
     return;
   }
-  root.innerHTML = state.queue.map((item) => {
-    const needsRunwayCheck = Boolean(item.runwayTaskId && !item.outputUrl);
+  const visibleQueue = state.queue.filter((item) => matchesQueueFilter(item, state.queueFilter));
+  $("#queueFilterSummary").textContent = state.queueFilter === "all"
+    ? `Showing all ${state.queue.length} videos`
+    : `Showing ${visibleQueue.length} ${state.queueFilter} video${visibleQueue.length === 1 ? "" : "s"}`;
+  if (!visibleQueue.length) {
+    root.innerHTML = `<div class="security-note"><strong>No ${escapeHtml(state.queueFilter)} videos</strong><p>Choose another filter or create a new video.</p></div>`;
+    return;
+  }
+  root.innerHTML = visibleQueue.map((item) => {
+    const needsRenderCheck = Boolean(item.renderTaskId && !item.outputUrl);
     const actionAttribute = item.outputUrl
       ? `data-preview-id="${item.id}"`
-      : needsRunwayCheck
+      : needsRenderCheck
         ? `data-check-id="${item.id}"`
         : `data-publish-id="${item.id}"`;
-    const actionLabel = item.outputUrl ? "Preview" : needsRunwayCheck ? "Check status" : item.scheduled ? "View" : "Post now";
+    const actionLabel = item.outputUrl ? "Preview" : needsRenderCheck ? "Check status" : item.scheduled ? "View" : "Post now";
     return `
     <article class="queue-item">
       <div class="queue-thumb">${item.duration}s</div>
       <div class="queue-title">
         <h3>${escapeHtml(item.title)}</h3>
         <p>${escapeHtml(item.niche)} · Vertical 9:16</p>
-        ${item.runwayFailure ? `<p class="queue-failure">${escapeHtml(item.runwayFailure)}</p>` : ""}
+        ${item.renderFailure ? `<p class="queue-failure">${escapeHtml(item.renderFailure)}</p>` : ""}
       </div>
       <div class="queue-platforms">${platformBadges(item.platforms)}</div>
       <div class="queue-actions">
@@ -88,8 +102,29 @@ function renderQueue() {
   `;
   }).join("");
   $$('[data-publish-id]', root).forEach((button) => button.addEventListener("click", () => publishDraft(Number(button.dataset.publishId))));
-  $$('[data-check-id]', root).forEach((button) => button.addEventListener("click", () => checkSavedRunwayTask(Number(button.dataset.checkId), button)));
+  $$('[data-check-id]', root).forEach((button) => button.addEventListener("click", () => checkSavedRenderTask(Number(button.dataset.checkId), button)));
   $$('[data-preview-id]', root).forEach((button) => button.addEventListener("click", () => openQueuePreview(Number(button.dataset.previewId))));
+}
+
+function matchesQueueFilter(item, filter) {
+  if (filter === "all") return true;
+  if (filter === "scheduled") return Boolean(item.scheduled);
+  if (filter === "ready") return Boolean(item.outputUrl) && !item.scheduled;
+  if (filter === "rendering") return Boolean(item.renderTaskId && !item.outputUrl) && !/failed|canceled/i.test(String(item.status));
+  return true;
+}
+
+function updateQueueStats() {
+  const counts = {
+    all: state.queue.length,
+    rendering: state.queue.filter((item) => matchesQueueFilter(item, "rendering")).length,
+    ready: state.queue.filter((item) => matchesQueueFilter(item, "ready")).length,
+    scheduled: state.queue.filter((item) => matchesQueueFilter(item, "scheduled")).length
+  };
+  $("#allVideoCount").textContent = counts.all;
+  $("#renderingVideoCount").textContent = counts.rendering;
+  $("#readyVideoCount").textContent = counts.ready;
+  $("#scheduledVideoCount").textContent = counts.scheduled;
 }
 
 function getOrCreateWorkspaceId() {
@@ -111,6 +146,7 @@ function updateDuration(seconds) {
   $$("#lengthOptions button").forEach((button) => button.classList.toggle("active", Number(button.dataset.seconds) === state.seconds));
   $("#durationBadge").textContent = `00:${String(state.seconds).padStart(2, "0")}`;
   $("#previewTime").nextElementSibling.textContent = `/ 0:${String(state.seconds).padStart(2, "0")}`;
+  $("#creditEstimate").textContent = `~${state.seconds} credits`;
   resetPreview();
 }
 
@@ -161,15 +197,17 @@ async function generateDraft() {
   const button = $("#generateButton");
   const original = button.innerHTML;
   button.disabled = true;
-  let runwayTaskId = null;
+  let renderTaskId = null;
   if (API_BASE_URL) {
-    button.innerHTML = "<span>Starting Runway render…</span>";
+    button.innerHTML = "<span>Writing your script…</span>";
+    setRenderStage("Writing your story", "CompactifAI is building the hook and scene plan", true);
     try {
-      runwayTaskId = await startRunwayGeneration(topic);
+      renderTaskId = await startVideoGeneration(topic);
     } catch (error) {
       button.disabled = false;
       button.innerHTML = original;
-      showToast(error.message || "Runway could not start this render.");
+      setRenderStage("Ready to create", "Adjust the brief and try again", false);
+      showToast(error.message || "The AI video workflow could not start.");
       return;
     }
   } else {
@@ -186,47 +224,49 @@ async function generateDraft() {
     title: topic,
     niche: $("#nicheSelect").value,
     duration: state.seconds,
-    status: runwayTaskId ? "Runway · queued" : "Draft",
+    status: renderTaskId ? "JSON2Video · queued" : "Draft",
     scheduled: false,
     platforms,
-    runwayTaskId
+    renderTaskId
   };
   state.queue.unshift(draft);
   persistQueue();
   $("#previewCaption").textContent = buildCaption(topic);
   button.disabled = false;
   button.innerHTML = original;
-  showToast(runwayTaskId ? "Runway render started. You can track it in Publishing." : "Draft created and added to your publishing queue.");
+  showToast(renderTaskId ? "Your script is ready and JSON2Video started rendering." : "Draft created and added to your publishing queue.");
   resetPreview();
-  if (runwayTaskId) void trackRunwayTask(runwayTaskId, draft.id);
+  if (renderTaskId) {
+    setRenderStage("Rendering your video", "Voice, captions, and scenes are being assembled", true);
+    void trackRenderTask(renderTaskId, draft.id);
+  }
 }
 
 function wait(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
 
-function runwayPrompt(topic) {
-  const style = state.template.toLowerCase();
-  const tone = $("#toneSelect").value.toLowerCase();
-  return `Vertical 9:16 faceless short-form video visual about ${topic}. ${tone} pacing, ${style} visual direction, cinematic lighting, strong movement, no visible presenter, no logos, no watermarks, no on-screen text.`;
-}
-
-async function startRunwayGeneration(topic) {
+async function startVideoGeneration(topic) {
   const response = await fetch(`${API_BASE_URL}/api/videos/generate`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      promptText: runwayPrompt(topic),
-      duration: Math.min(10, Math.max(5, state.seconds))
+      topic,
+      duration: state.seconds,
+      niche: $("#nicheSelect").value,
+      tone: $("#toneSelect").value,
+      template: state.template,
+      voice: $("#voiceSelect").value,
+      captions: $("#captionSelect").value
     })
   });
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.error || "Runway rejected the generation request.");
+  if (!response.ok) throw new Error(data.error || "The video service rejected the generation request.");
   return data.taskId;
 }
 
-async function syncRunwayTask(taskId, draftId, notify = false) {
+async function syncRenderTask(taskId, draftId, notify = false) {
   const response = await fetch(`${API_BASE_URL}/api/videos/${encodeURIComponent(taskId)}/status`, { cache: "no-store" });
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.error || "Runway status check failed");
+  if (!response.ok) throw new Error(data.error || "JSON2Video status check failed");
 
   const draft = state.queue.find((item) => item.id === draftId);
   if (!draft) return true;
@@ -239,21 +279,21 @@ async function syncRunwayTask(taskId, draftId, notify = false) {
     ? ` · ${Math.max(0, Math.min(100, Math.round(progress * (progress <= 1 ? 100 : 1))))}%`
     : "";
 
-  draft.runwayFailure = "";
+  draft.renderFailure = "";
   draft.status = normalized === "SUCCEEDED"
-    ? "Runway · ready"
+    ? "JSON2Video · ready"
     : normalized === "FAILED" || canceled
-      ? `Runway · ${canceled ? "canceled" : "failed"}`
-      : `Runway · ${normalized.toLowerCase()}${progressLabel}`;
+      ? `JSON2Video · ${canceled ? "canceled" : "failed"}`
+      : `JSON2Video · ${normalized.toLowerCase()}${progressLabel}`;
 
   if (normalized === "SUCCEEDED") {
     draft.outputUrl = data.output?.[0] || "";
     if (!draft.outputUrl) {
-      draft.status = "Runway · completed without output";
-      draft.runwayFailure = "Runway completed the task but did not return a video URL.";
+      draft.status = "JSON2Video · completed without output";
+      draft.renderFailure = "JSON2Video completed the task but did not return a video URL.";
     }
   } else if (normalized === "FAILED" || canceled) {
-    draft.runwayFailure = data.failure || data.failureCode || (canceled ? "The Runway task was canceled." : "Runway did not provide a failure reason.");
+    draft.renderFailure = data.failure || data.failureCode || (canceled ? "The render was canceled." : "JSON2Video did not provide a failure reason.");
   }
 
   persistQueue();
@@ -261,62 +301,63 @@ async function syncRunwayTask(taskId, draftId, notify = false) {
 
   if (normalized === "SUCCEEDED" && draft.outputUrl) {
     loadGeneratedVideo(draft.outputUrl);
-    if (notify) showToast("Your Runway video clip is ready.");
+    setRenderStage("Video ready to review", "Open Publishing to watch the completed video", false);
+    if (notify) showToast("Your complete JSON2Video render is ready.");
   } else if ((normalized === "FAILED" || canceled) && notify) {
-    showToast(draft.runwayFailure);
+    showToast(draft.renderFailure);
   } else if (notify) {
-    showToast(`Runway reports: ${normalized.toLowerCase()}${progressLabel}`);
+    showToast(`JSON2Video reports: ${normalized.toLowerCase()}${progressLabel}`);
   }
   return terminal;
 }
 
-async function trackRunwayTask(taskId, draftId) {
-  if (activeRunwayPolls.has(taskId)) return;
-  activeRunwayPolls.add(taskId);
+async function trackRenderTask(taskId, draftId) {
+  if (activeRenderPolls.has(taskId)) return;
+  activeRenderPolls.add(taskId);
   try {
     for (let attempt = 0; attempt < 120; attempt += 1) {
       try {
-        const finished = await syncRunwayTask(taskId, draftId, attempt === 0);
+        const finished = await syncRenderTask(taskId, draftId, attempt === 0);
         if (finished) return;
       } catch (error) {
-        if (attempt === 0) showToast(error.message || "Could not check the Runway task.");
+        if (attempt === 0) showToast(error.message || "Could not check the JSON2Video task.");
       }
       await wait(5000);
     }
 
     const draft = state.queue.find((item) => item.id === draftId);
     if (draft && !draft.outputUrl) {
-      draft.status = "Runway · still processing";
-      draft.runwayFailure = "Automatic checks paused after 10 minutes. Use Check status to ask Runway again.";
+      draft.status = "JSON2Video · still processing";
+      draft.renderFailure = "Automatic checks paused after 10 minutes. Use Check status to ask JSON2Video again.";
       persistQueue();
       renderQueue();
     }
   } finally {
-    activeRunwayPolls.delete(taskId);
+    activeRenderPolls.delete(taskId);
   }
 }
 
-async function checkSavedRunwayTask(draftId, button) {
+async function checkSavedRenderTask(draftId, button) {
   const draft = state.queue.find((item) => item.id === draftId);
-  if (!draft?.runwayTaskId) return;
+  if (!draft?.renderTaskId) return;
   const original = button.textContent;
   button.disabled = true;
   button.textContent = "Checking…";
   try {
-    const finished = await syncRunwayTask(draft.runwayTaskId, draft.id, true);
-    if (!finished) void trackRunwayTask(draft.runwayTaskId, draft.id);
+    const finished = await syncRenderTask(draft.renderTaskId, draft.id, true);
+    if (!finished) void trackRenderTask(draft.renderTaskId, draft.id);
   } catch (error) {
-    showToast(error.message || "Could not check the Runway task.");
+    showToast(error.message || "Could not check the JSON2Video task.");
   } finally {
     button.disabled = false;
     button.textContent = original;
   }
 }
 
-function resumeRunwayTasks() {
+function resumeRenderTasks() {
   state.queue
-    .filter((item) => item.runwayTaskId && !item.outputUrl && !String(item.status).includes("failed") && !String(item.status).includes("canceled"))
-    .forEach((item) => void trackRunwayTask(item.runwayTaskId, item.id));
+    .filter((item) => item.renderTaskId && !item.outputUrl && !String(item.status).includes("failed") && !String(item.status).includes("canceled"))
+    .forEach((item) => void trackRenderTask(item.renderTaskId, item.id));
 }
 
 function loadGeneratedVideo(url) {
@@ -324,6 +365,12 @@ function loadGeneratedVideo(url) {
   video.src = url;
   $("#videoPreview").classList.add("has-render");
   video.play().catch(() => {});
+}
+
+function setRenderStage(title, copy, active) {
+  $("#renderStageTitle").textContent = title;
+  $("#renderStageCopy").textContent = copy;
+  $(".render-status-strip").classList.toggle("is-active", Boolean(active));
 }
 
 function openQueuePreview(id) {
@@ -428,29 +475,58 @@ function handleOAuthReturn() {
   setView("connections");
 }
 
-async function checkRunwayConnection() {
+async function checkAiStack() {
   if (!API_BASE_URL) {
-    $("#dialogTitle").textContent = "Configure Runway";
-    $("#dialogCopy").innerHTML = "Deploy the included <code>backend</code> folder, save your Runway key as <code>RUNWAY_API_KEY</code>, then add the backend URL to <code>config.js</code>.";
+    $("#dialogTitle").textContent = "Configure the AI stack";
+    $("#dialogCopy").innerHTML = "Deploy the included <code>backend</code> folder and save your keys as <code>COMPACTIFAI_API_KEY</code> and <code>JSON2VIDEO_API_KEY</code>.";
     $("#connectDialog").showModal();
     return;
   }
-  const button = $("#runwayTestButton");
+  const button = $("#aiStackTestButton");
   button.disabled = true;
   button.textContent = "Checking…";
   try {
-    const response = await fetch(`${API_BASE_URL}/health`);
+    const response = await fetch(`${API_BASE_URL}/health`, { cache: "no-store" });
     if (!response.ok) throw new Error();
-    $("#runwayStatus").textContent = "Ready";
-    $("#modePill").lastChild.textContent = " Runway ready";
-    showToast("Runway backend is reachable.");
+    const data = await response.json();
+    const compactReady = Boolean(data.services?.compactifaiConfigured);
+    const videoReady = Boolean(data.services?.json2videoConfigured);
+    setServiceStatus("compactifai", compactReady);
+    setServiceStatus("json2video", videoReady);
+    const allReady = compactReady && videoReady;
+    $("#backendLiveChip").classList.toggle("ready", allReady);
+    $("#backendLiveChip").innerHTML = `<i></i> ${allReady ? "Live" : "Needs setup"}`;
+    $("#backendHealthCopy").textContent = allReady
+      ? "CompactifAI and JSON2Video are configured for production."
+      : "Add both provider secrets in Cloudflare to enable complete video creation.";
+    $("#modePill").lastChild.textContent = allReady ? " AI stack ready" : " Setup needed";
+    showToast(allReady ? "Your AI production stack is ready." : "One or more provider keys still need setup.");
   } catch {
-    $("#runwayStatus").textContent = "Needs attention";
-    showToast("The Runway backend could not be reached.");
+    setServiceStatus("compactifai", false, "Needs attention");
+    setServiceStatus("json2video", false, "Needs attention");
+    $("#backendLiveChip").innerHTML = "<i></i> Offline";
+    $("#backendHealthCopy").textContent = "The Cloudflare Worker could not be reached.";
+    showToast("The GhostFrame backend could not be reached.");
   } finally {
     button.disabled = false;
-    button.textContent = "Check Runway";
+    button.textContent = "Check AI stack";
   }
+}
+
+function setServiceStatus(provider, ready, override = "") {
+  const status = $(`#${provider}Status`);
+  status.classList.toggle("ready", ready);
+  status.textContent = override || (ready ? "Ready" : "Needs setup");
+}
+
+function resetProject() {
+  $("#topicInput").value = "";
+  $("#charCount").textContent = "0 / 240";
+  $("#previewCaption").textContent = "YOUR NEXT STORY";
+  setRenderStage("Ready to create", "Choose an idea or write your own brief", false);
+  resetPreview();
+  setView("studio");
+  $("#topicInput").focus();
 }
 
 async function publishDraft(id) {
@@ -465,8 +541,8 @@ async function publishDraft(id) {
     showToast("Connect a secure publishing service before posting.");
     return;
   }
-  if (item.runwayTaskId && !item.outputUrl) {
-    showToast("Wait for the Runway render to finish before publishing.");
+  if (item.renderTaskId && !item.outputUrl) {
+    showToast("Wait for the JSON2Video render to finish before publishing.");
     return;
   }
   const response = await fetch(`${API_BASE_URL}/api/videos/publish`, {
@@ -516,7 +592,18 @@ function registerWebMcpTools() {
 
 $$(".nav-item").forEach((button) => button.addEventListener("click", () => setView(button.dataset.view)));
 $$('[data-go-studio]').forEach((button) => button.addEventListener("click", () => setView("studio")));
+$("#newProjectButton").addEventListener("click", resetProject);
 $("#topicInput").addEventListener("input", (event) => { $("#charCount").textContent = `${event.target.value.length} / 240`; });
+$$("[data-prompt]").forEach((button) => button.addEventListener("click", () => {
+  $("#topicInput").value = button.dataset.prompt;
+  $("#charCount").textContent = `${button.dataset.prompt.length} / 240`;
+  $("#previewCaption").textContent = buildCaption(button.dataset.prompt);
+}));
+$$("[data-queue-filter]").forEach((button) => button.addEventListener("click", () => {
+  state.queueFilter = button.dataset.queueFilter;
+  $$("[data-queue-filter]").forEach((item) => item.classList.toggle("active", item === button));
+  renderQueue();
+}));
 $$("#lengthOptions button").forEach((button) => button.addEventListener("click", () => updateDuration(button.dataset.seconds)));
 $$(".template").forEach((button) => button.addEventListener("click", () => {
   $$(".template").forEach((item) => item.classList.remove("active"));
@@ -531,12 +618,12 @@ $("#muteButton").addEventListener("click", (event) => {
   showToast(event.currentTarget.textContent === "×" ? "Preview muted" : "Preview sound on");
 });
 $("#themeButton").addEventListener("click", () => document.body.classList.toggle("high-contrast"));
-$("#runwayTestButton").addEventListener("click", checkRunwayConnection);
+$("#aiStackTestButton").addEventListener("click", checkAiStack);
 $$(".connect-button").forEach((button) => button.addEventListener("click", () => openConnectDialog(button.dataset.platform, button)));
 $("#connectDialog .dialog-close").addEventListener("click", () => $("#connectDialog").close());
 $(".dialog-confirm").addEventListener("click", () => $("#connectDialog").close());
 $(".video-dialog-close").addEventListener("click", closeQueuePreview);
-$("#queuePreviewVideo").addEventListener("error", () => showToast("This preview link expired. Check the Runway status or generate a new clip."));
+$("#queuePreviewVideo").addEventListener("error", () => showToast("This preview link expired. Check the JSON2Video status or generate a new video."));
 $("#queuePreviewPostButton").addEventListener("click", () => {
   const id = Number($("#queuePreviewPostButton").dataset.draftId);
   closeQueuePreview();
@@ -547,9 +634,9 @@ persistQueue();
 renderQueue();
 registerWebMcpTools();
 if (API_BASE_URL) {
-  $("#runwayStatus").textContent = "Configured";
-  $("#modePill").lastChild.textContent = " Runway configured";
-  resumeRunwayTasks();
+  $("#modePill").lastChild.textContent = " Checking AI stack";
+  resumeRenderTasks();
+  void checkAiStack();
   void checkOAuthConnections();
 }
 handleOAuthReturn();

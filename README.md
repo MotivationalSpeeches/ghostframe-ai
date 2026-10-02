@@ -6,8 +6,9 @@ A polished, GitHub Pages-ready dashboard for creating and scheduling AI faceless
 
 - Responsive creator studio with topic, niche, tone, length, visual style, voice, and caption controls
 - Animated vertical-video preview
-- Local demo generation plus a secure Runway Gen-4.5 integration
-- Persistent publishing queue with Runway task tracking
+- CompactifAI script, hook, and scene generation through a secure Cloudflare Worker
+- JSON2Video vertical MP4 rendering with voice-over and automatic subtitles
+- Persistent publishing queue with render progress tracking
 - Playable video review on the Publishing page before posting
 - TikTok and YouTube connection screens
 - GitHub Pages deployment workflow
@@ -22,23 +23,25 @@ The site runs in **demo mode** until `config.js` points to the included backend.
 3. Under **Build and deployment**, choose **GitHub Actions**.
 4. Push to the `main` branch. The included workflow publishes the site.
 
-## Turn on Runway video generation
+## Turn on AI video generation
 
-The included `backend/` folder is a Cloudflare Worker that starts portrait Gen-4.5 text-to-video tasks and safely polls their status.
+The included `backend/` folder uses CompactifAI to write the script and JSON2Video to render a 1080 × 1920 MP4 with scene text, narration, and captions. Provider keys stay in Cloudflare.
 
 ```bash
 cd backend
 npm install
-npx wrangler secret put RUNWAY_API_KEY
+npx wrangler secret put COMPACTIFAI_API_KEY
+npx wrangler secret put JSON2VIDEO_API_KEY
 npm run deploy
 ```
 
 Before deploying, replace `YOUR_GITHUB_USERNAME` in `backend/wrangler.toml`. Then copy the deployed Worker URL into `config.js` as `apiBaseUrl`.
 
-Never paste the key into `config.js`, `app.js`, `wrangler.toml`, or any committed file. Runway's official environment-variable name is:
+Never paste either key into `config.js`, `app.js`, `wrangler.toml`, or any committed file. The required Cloudflare secret names are:
 
 ```text
-RUNWAY_API_KEY
+COMPACTIFAI_API_KEY
+JSON2VIDEO_API_KEY
 ```
 
 ## Turn on TikTok and YouTube posting
