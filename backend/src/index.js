@@ -1,5 +1,5 @@
-const RUNWAY_API = "https://api.dev.runwayml.com";
-const RUNWAY_VERSION = "2024-11-06";
+const COMPACTIFAI_API = "https://api.compactif.ai/v1";
+const JSON2VIDEO_API = "https://api.json2video.com/v2";
 const TIKTOK_AUTH_URL = "https://www.tiktok.com/v2/auth/authorize/";
 const TIKTOK_TOKEN_URL = "https://open.tiktokapis.com/v2/oauth/token/";
 const GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
@@ -19,7 +19,11 @@ export default {
     if (url.pathname === "/health") {
       return json({
         ok: true,
-        provider: "runway",
+        provider: "compactifai+json2video",
+        services: {
+          compactifaiConfigured: Boolean(env.COMPACTIFAI_API_KEY),
+          json2videoConfigured: Boolean(env.JSON2VIDEO_API_KEY)
+        },
         oauth: {
           storageConfigured: Boolean(env.OAUTH_SESSIONS && env.TOKEN_ENCRYPTION_KEY),
           tiktokConfigured: oauthConfigured("tiktok", env),
@@ -50,13 +54,14 @@ export default {
     }
 
     if (request.method === "POST" && url.pathname === "/api/videos/generate") {
-      if (!env.RUNWAY_API_KEY) return json({ error: "Runway is not configured on the server" }, 503, cors);
+      if (!env.COMPACTIFAI_API_KEY) return json({ error: "CompactifAI is not configured on the server" }, 503, cors);
+      if (!env.JSON2VIDEO_API_KEY) return json({ error: "JSON2Video is not configured on the server" }, 503, cors);
       return generateVideo(request, env, cors);
     }
 
-    const statusMatch = url.pathname.match(/^\/api\/videos\/([A-Za-z0-9-]{8,})\/status$/);
+    const statusMatch = url.pathname.match(/^\/api\/videos\/([A-Za-z0-9_-]{8,})\/status$/);
     if (request.method === "GET" && statusMatch) {
-      if (!env.RUNWAY_API_KEY) return json({ error: "Runway is not configured on the server" }, 503, cors);
+      if (!env.JSON2VIDEO_API_KEY) return json({ error: "JSON2Video is not configured on the server" }, 503, cors);
       return getTask(statusMatch[1], env, cors);
     }
 
@@ -339,43 +344,210 @@ async function generateVideo(request, env, cors) {
     return json({ error: "Request body must be JSON" }, 400, cors);
   }
 
-  const promptText = String(body.promptText || "").trim();
-  const requestedDuration = Number(body.duration || 5);
-  const duration = Math.min(10, Math.max(2, Math.round(requestedDuration)));
+  const promptText = String(body.promptText || body.topic || "").trim();
+  const duration = Math.min(60, Math.max(15, Math.round(Number(body.duration || 30))));
   if (promptText.length < 8 || promptText.length > 1000) {
     return json({ error: "Prompt must be between 8 and 1000 characters" }, 400, cors);
   }
 
-  const response = await fetch(`${RUNWAY_API}/v1/text_to_video`, {
-    method: "POST",
-    headers: runwayHeaders(env.RUNWAY_API_KEY),
-    body: JSON.stringify({ model: "gen4.5", promptText, ratio: "720:1280", duration })
-  });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) return json({ error: readableRunwayError(data, response.status) }, response.status, cors);
-  return json({ taskId: data.id, status: data.status || "PENDING" }, 202, cors);
+  try {
+    const script = await createVideoScript(promptText, duration, body, env);
+    const movie = buildMovie(script, duration, body);
+    const response = await fetch(`${JSON2VIDEO_API}/movies`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-api-key": env.JSON2VIDEO_API_KEY },
+      body: JSON.stringify(movie)
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.success || !data.project) {
+      return json({ error: readableJson2VideoError(data, response.status) }, response.ok ? 502 : response.status, cors);
+    }
+    return json({
+      taskId: data.project,
+      status: "PENDING",
+      title: script.title,
+      hook: script.hook,
+      sceneCount: script.scenes.length
+    }, 202, cors);
+  } catch (error) {
+    return json({ error: error.message || "The video workflow could not start" }, 502, cors);
+  }
 }
 
 async function getTask(taskId, env, cors) {
-  const response = await fetch(`${RUNWAY_API}/v1/tasks/${encodeURIComponent(taskId)}`, {
-    headers: runwayHeaders(env.RUNWAY_API_KEY, false)
+  const response = await fetch(`${JSON2VIDEO_API}/movies?project=${encodeURIComponent(taskId)}`, {
+    headers: { "x-api-key": env.JSON2VIDEO_API_KEY }
   });
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) return json({ error: readableRunwayError(data, response.status) }, response.status, cors);
+  if (!response.ok || !data.success) {
+    return json({ error: readableJson2VideoError(data, response.status) }, response.ok ? 502 : response.status, cors);
+  }
+  const movie = data.movie || {};
+  const rawStatus = String(movie.status || "running").toLowerCase();
+  const status = rawStatus === "done"
+    ? "SUCCEEDED"
+    : rawStatus === "error" || rawStatus === "timeout"
+      ? "FAILED"
+      : "RUNNING";
+  const progress = Number(movie.progress);
   return json({
-    id: data.id,
-    status: data.status,
-    progress: data.progress ?? null,
-    output: Array.isArray(data.output) ? data.output : [],
-    failureCode: data.failureCode || null,
-    failure: data.failure || data.failureReason || null
+    id: movie.project || taskId,
+    status,
+    progress: Number.isFinite(progress) ? progress / 100 : null,
+    output: movie.url ? [movie.url] : [],
+    thumbnail: movie.thumbnail || null,
+    failureCode: rawStatus === "timeout" ? "RENDER_TIMEOUT" : null,
+    failure: status === "FAILED" ? movie.message || "JSON2Video could not render this video" : null
   }, 200, cors);
 }
 
-function runwayHeaders(secret, includeJson = true) {
-  const headers = { Authorization: `Bearer ${secret}`, "X-Runway-Version": RUNWAY_VERSION };
-  if (includeJson) headers["Content-Type"] = "application/json";
-  return headers;
+async function createVideoScript(topic, duration, options, env) {
+  const sceneCount = Math.max(3, Math.min(8, Math.round(duration / 6)));
+  const tone = String(options.tone || "dramatic").slice(0, 60);
+  const niche = String(options.niche || "facts and curiosity").slice(0, 80);
+  const response = await fetch(`${COMPACTIFAI_API}/chat/completions`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${env.COMPACTIFAI_API_KEY}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: env.COMPACTIFAI_MODEL || "carina-60b",
+      temperature: 0.75,
+      max_tokens: 1400,
+      response_format: { type: "json_object" },
+      messages: [
+        {
+          role: "system",
+          content: "You write concise, truthful scripts for vertical faceless short videos. Return valid JSON only with keys title, hook, and scenes. scenes must be an array of objects with headline and narration. Avoid unverifiable claims, impersonation, copyrighted lyrics, and unsafe instructions."
+        },
+        {
+          role: "user",
+          content: `Create a ${duration}-second ${tone} video for the ${niche} niche about: ${topic}. Use exactly ${sceneCount} scenes. Each headline must be 2-7 words. Each narration must be no more than ${Math.max(10, Math.round((duration / sceneCount) * 2.1))} words. Start with a strong hook and end with a memorable takeaway.`
+        }
+      ]
+    })
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const message = data?.error?.message || data?.detail || `CompactifAI request failed (${response.status})`;
+    throw new Error(message);
+  }
+  const content = data?.choices?.[0]?.message?.content;
+  const parsed = parseModelJson(content);
+  const scenes = Array.isArray(parsed.scenes)
+    ? parsed.scenes.slice(0, sceneCount).map((scene, index) => ({
+        headline: cleanText(scene?.headline || `Scene ${index + 1}`, 90),
+        narration: cleanText(scene?.narration || scene?.text || "", 320)
+      })).filter((scene) => scene.narration)
+    : [];
+  if (scenes.length < 2) throw new Error("CompactifAI did not return a usable video script");
+  return {
+    title: cleanText(parsed.title || topic, 120),
+    hook: cleanText(parsed.hook || scenes[0].headline, 160),
+    scenes
+  };
+}
+
+function buildMovie(script, duration, options) {
+  const palette = ["#12102b", "#19123d", "#0f2940", "#26113b", "#102f2f", "#2b1710"];
+  const secondsPerScene = Math.max(3, Number((duration / script.scenes.length).toFixed(2)));
+  const voice = voiceName(options.voice);
+  return {
+    width: 1080,
+    height: 1920,
+    quality: "high",
+    comment: `GhostFrame: ${script.title}`,
+    "client-data": { source: "ghostframe", title: script.title },
+    scenes: script.scenes.map((scene, index) => ({
+      duration: secondsPerScene,
+      "background-color": palette[index % palette.length],
+      elements: [
+        {
+          type: "text",
+          text: String(index + 1).padStart(2, "0"),
+          width: "80%",
+          height: "12%",
+          x: "center",
+          y: "12%",
+          duration: -2,
+          "fade-in": 0.25,
+          settings: {
+            "font-family": "Poppins",
+            "font-size": "42px",
+            "font-weight": "700",
+            color: "#d7ff38",
+            "letter-spacing": "8px",
+            "text-align": "left",
+            "vertical-position": "center"
+          }
+        },
+        {
+          type: "text",
+          text: scene.headline.toUpperCase(),
+          width: "84%",
+          height: "46%",
+          x: "center",
+          y: "25%",
+          duration: -2,
+          "fade-in": 0.35,
+          "fade-out": 0.2,
+          settings: {
+            "font-family": "Poppins",
+            "font-size": "104px",
+            "font-weight": "800",
+            color: "#ffffff",
+            "line-height": "0.96",
+            "text-align": "left",
+            "vertical-position": "center"
+          }
+        },
+        { type: "voice", text: scene.narration, model: "azure", voice }
+      ]
+    })),
+    elements: [
+      {
+        type: "subtitles",
+        language: "en",
+        model: "whisper",
+        settings: {
+          style: "boxed-word",
+          position: "mid-bottom-center",
+          "font-family": "Poppins",
+          "font-size": 76,
+          "font-weight": "800",
+          "all-caps": true,
+          "max-words-per-line": 4,
+          "word-color": "#111111",
+          "line-color": "#ffffff",
+          "box-color": "#d7ff38",
+          "outline-color": "#000000",
+          "outline-width": 2
+        }
+      }
+    ]
+  };
+}
+
+function voiceName(value) {
+  const normalized = String(value || "").toLowerCase();
+  if (normalized.includes("nova")) return "en-US-AvaMultilingualNeural";
+  if (normalized.includes("vale")) return "en-US-AndrewMultilingualNeural";
+  return "en-US-EmmaMultilingualNeural";
+}
+
+function parseModelJson(content) {
+  if (typeof content === "object" && content) return content;
+  const text = String(content || "").trim().replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
+  try {
+    return JSON.parse(text);
+  } catch {
+    const start = text.indexOf("{");
+    const end = text.lastIndexOf("}");
+    if (start >= 0 && end > start) return JSON.parse(text.slice(start, end + 1));
+    throw new Error("CompactifAI returned an unreadable script");
+  }
+}
+
+function cleanText(value, limit) {
+  return String(value || "").replace(/[<>]/g, "").replace(/\s+/g, " ").trim().slice(0, limit);
 }
 
 function corsHeaders(origin, allowedOrigin) {
@@ -390,10 +562,11 @@ function corsHeaders(origin, allowedOrigin) {
   };
 }
 
-function readableRunwayError(data, status) {
-  if (status === 401) return "Runway rejected the API key";
-  if (status === 429) return "Runway is busy or the project limit was reached";
-  return data?.error || data?.message || `Runway request failed (${status})`;
+function readableJson2VideoError(data, status) {
+  if (status === 400 && /api key/i.test(String(data?.message || ""))) return "JSON2Video rejected the API key";
+  if (status === 401) return "JSON2Video credits or plan limits were reached";
+  if (status === 429) return "JSON2Video is receiving too many requests";
+  return data?.message || data?.error || `JSON2Video request failed (${status})`;
 }
 
 function json(data, status = 200, headers = {}) {
