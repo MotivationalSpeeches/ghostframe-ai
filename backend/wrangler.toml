@@ -5,6 +5,7 @@ compatibility_date = "2026-09-28"
 [vars]
 ALLOWED_ORIGIN = "https://motivationalspeeches.github.io"
 APP_URL = "https://motivationalspeeches.github.io/ghostframe-ai/"
+COMPACTIFAI_MODEL = "carina-60b"
 
 [[durable_objects.bindings]]
 name = "OAUTH_SESSIONS"
